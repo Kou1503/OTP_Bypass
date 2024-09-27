@@ -1,73 +1,60 @@
 import os
-import imaplib
-import email
 import time
-import pyperclip
+import win32com.client
 from selenium import webdriver
-from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from dotenv import load_dotenv
 
-# Function to fetch OTP from Outlook
-def fetch_otp_from_outlook():
-    # Get email and password from environment variables
-    email_user = os.environ.get('OUTLOOK_EMAIL')  # Fetch email from env variable
-    email_pass = os.environ.get('OUTLOOK_PASSWORD')  # Fetch password from env variable
+# Load environment variables from the config.env file
+load_dotenv('config.env')
 
-    # Connect to the Outlook IMAP server
-    mail = imaplib.IMAP4_SSL('outlook.office365.com')
-    mail.login(email_user, email_pass)
-    
-    mail.select("inbox")
-    result, data = mail.search(None, 'UNSEEN')  # Search for unseen emails
-    email_ids = data[0].split()
-    
-    if email_ids:
-        latest_email_id = email_ids[-1]  # Get the latest email
-        result, msg_data = mail.fetch(latest_email_id, '(RFC822)')
-        raw_email = msg_data[0][1]
-        msg = email.message_from_bytes(raw_email)
+# Get credentials and configurations from environment variables
+email = os.getenv('EMAIL')
+password = os.getenv('PASSWORD')
+website_url = os.getenv('WEBSITE_URL')
+opera_path = os.getenv('OPERA_PATH')
 
-        # Assuming the OTP is in the email subject or body
-        subject = msg['subject']
-        body = ""
+# Function to get OTP from Outlook
+def get_otp():
+    outlook = win32com.client.Dispatch("Outlook.Application")
+    namespace = outlook.GetNamespace("MAPI")
+    inbox = namespace.GetDefaultFolder(6)  # 6 refers to the inbox
+    messages = inbox.Items
+
+    for message in messages:
+        if "OTP" in message.Subject:  # Change this to match the subject of your OTP emails
+            return message.Body  # Get the body of the email containing the OTP
+
+    return None  # Return None if no OTP found
+
+# Function to open the website and enter the OTP
+def enter_otp(otp):
+    # Set up Selenium to use Opera GX
+    options = Options()
+    options.binary_location = opera_path
+    driver = webdriver.Opera(service=Service(), options=options)
+
+    try:
+        driver.get(website_url)  # Open the target website
+        time.sleep(5)  # Wait for the page to load (adjust as needed)
+
+        # Locate the OTP input field and enter the OTP
+        otp_input = driver.find_element("name", "otp")  # Adjust based on the actual input field's name or identifier
+        otp_input.send_keys(otp)
         
-        if msg.is_multipart():
-            for part in msg.walk():
-                if part.get_content_type() == "text/plain":
-                    body = part.get_payload(decode=True).decode()
-        else:
-            body = msg.get_payload(decode=True).decode()
+        submit_button = driver.find_element("id", "submit")  # Adjust based on the actual button's identifier
+        submit_button.click()  # Click the submit button
         
-        # Extract the OTP (Assuming it's a 6-digit number)
-        otp = ''.join(filter(str.isdigit, body))  # Simple extraction
-        return otp
-    return None
+    finally:
+        time.sleep(5)  # Wait to see the result (adjust as needed)
+        driver.quit()  # Close the browser
 
-# Function to automate pasting OTP into a website
-def paste_otp(otp):
-    # Copy OTP to clipboard
-    pyperclip.copy(otp)
-
-    # Set up the Opera GX WebDriver
-    options = webdriver.ChromeOptions()
-    options.binary_location = "C:/path/to/your/opera.exe"  # Update with the path to your Opera GX browser
-    driver = webdriver.Opera(options=options)
-
-    driver.get('https://example.com/login')  # Replace with your target URL
-
-    # Wait for the page to load
-    time.sleep(5)
-
-    # Find the input field for OTP (Update the selector as needed)
-    otp_input = driver.find_element(By.ID, 'otpInput')  # Update with the actual ID
-    otp_input.click()
-
-    # Paste the OTP
-    otp_input.send_keys(pyperclip.paste())
-
-# Main function
-if __name__ == '__main__':
-    while True:
-        otp = fetch_otp_from_outlook()  # Fetch the OTP
-        if otp:
-            paste_otp(otp)  # Paste the OTP
-        time.sleep(30)  # Check every 30 seconds or adjust as needed
+# Main function to run the program
+if __name__ == "__main__":
+    otp = get_otp()  # Fetch the OTP from Outlook
+    if otp:
+        print(f"OTP retrieved: {otp}")
+        enter_otp(otp)  # Enter the OTP into the website
+    else:
+        print("No OTP found in inbox.")

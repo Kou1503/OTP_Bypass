@@ -9,6 +9,8 @@ from dotenv import load_dotenv
 # Load environment variables from the config.env file
 load_dotenv('config.env')
 
+# test 
+
 # Get credentials and configurations from environment variables
 email = os.getenv('EMAIL')
 password = os.getenv('PASSWORD')

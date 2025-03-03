@@ -1,62 +1,98 @@
 import os
 import time
-import win32com.client
+import re
 from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 from dotenv import load_dotenv
+import pyautogui
 
-# Load environment variables from the config.env file
-load_dotenv('config.env')
+# Clear old environment variables
+os.environ.pop("USERNAME", None)
+os.environ.pop("PASSWORD", None)
 
-# test 
+# Load environment variables
+load_dotenv()
+LOGIN_URL = os.getenv("LOGIN_URL")
+USERNAME = os.getenv("USERNAME")
+PASSWORD = os.getenv("PASSWORD")
+OTP_WAIT_TIME = int(os.getenv("OTP_WAIT_TIME", 10))
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", 5))
 
-# Get credentials and configurations from environment variables
-email = os.getenv('EMAIL')
-password = os.getenv('PASSWORD')
-website_url = os.getenv('WEBSITE_URL')
-opera_path = os.getenv('OPERA_PATH')
+# Debugging
+print(f"LOGIN_URL: {LOGIN_URL}")
+print(f"USERNAME: {USERNAME}")
+print(f"PASSWORD: {PASSWORD}")
 
-# Function to get OTP from Outlook
-def get_otp():
-    outlook = win32com.client.Dispatch("Outlook.Application")
-    namespace = outlook.GetNamespace("MAPI")
-    inbox = namespace.GetDefaultFolder(6)  # 6 refers to the inbox
-    messages = inbox.Items
+# Initialize Chrome WebDriver
+options = webdriver.ChromeOptions()
+options.add_experimental_option("detach", True)  # Keeps the browser open
 
-    for message in messages:
-        if "OTP" in message.Subject:  # Change this to match the subject of your OTP emails
-            return message.Body  # Get the body of the email containing the OTP
+driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-    return None  # Return None if no OTP found
+# Open the login page
+driver.get(LOGIN_URL)
 
-# Function to open the website and enter the OTP
-def enter_otp(otp):
-    # Set up Selenium to use Opera GX
-    options = Options()
-    options.binary_location = opera_path
-    driver = webdriver.Opera(service=Service(), options=options)
+# Wait for username field and enter username
+username_field = WebDriverWait(driver, 10).until(
+    EC.presence_of_element_located((By.NAME, "userid"))
+)
+username_field.send_keys(USERNAME)
 
-    try:
-        driver.get(website_url)  # Open the target website
-        time.sleep(5)  # Wait for the page to load (adjust as needed)
+# Wait for password field and enter password
+password_field = WebDriverWait(driver, 10).until(
+    EC.presence_of_element_located((By.NAME, "pwd"))
+)
+password_field.send_keys(PASSWORD)
 
-        # Locate the OTP input field and enter the OTP
-        otp_input = driver.find_element("name", "otp")  # Adjust based on the actual input field's name or identifier
-        otp_input.send_keys(otp)
-        
-        submit_button = driver.find_element("id", "submit")  # Adjust based on the actual button's identifier
-        submit_button.click()  # Click the submit button
-        
-    finally:
-        time.sleep(5)  # Wait to see the result (adjust as needed)
-        driver.quit()  # Close the browser
+# Click the Sign In button
+sign_in_button = WebDriverWait(driver, 10).until(
+    EC.element_to_be_clickable((By.ID, "ps_submit_button"))
+)
+sign_in_button.click()
 
-# Main function to run the program
-if __name__ == "__main__":
-    otp = get_otp()  # Fetch the OTP from Outlook
-    if otp:
-        print(f"OTP retrieved: {otp}")
-        enter_otp(otp)  # Enter the OTP into the website
-    else:
-        print("No OTP found in inbox.")
+# Wait for OTP input field
+otp_field = WebDriverWait(driver, OTP_WAIT_TIME).until(
+    EC.presence_of_element_located((By.NAME, "otp"))
+)
+
+# Switch to Outlook and get the OTP
+time.sleep(5)  # Give time to switch manually if needed
+pyautogui.hotkey("alt", "tab")  # Switch to Outlook
+
+time.sleep(2)  # Wait for Outlook to be active
+pyautogui.hotkey("ctrl", "e")  # Focus search bar
+pyautogui.write("Your OTP Code")  # Search for the OTP email
+pyautogui.press("enter")
+
+time.sleep(2)  # Wait for search results
+pyautogui.press("down")  # Select the first email
+pyautogui.press("enter")
+
+time.sleep(2)  # Wait for email to open
+pyautogui.hotkey("ctrl", "a")  # Select all text
+pyautogui.hotkey("ctrl", "c")  # Copy text
+
+time.sleep(1)
+otp_text = pyautogui.paste()  # Get copied text
+otp_code = re.search(r'\b\d{6}\b', otp_text)  # Extract 6-digit OTP
+
+if otp_code:
+    otp_code = otp_code.group()
+    print(f"Extracted OTP: {otp_code}")
+    otp_field.send_keys(otp_code)
+
+    # Click Submit or Continue (adjust selector if needed)
+    submit_button = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.XPATH, '//button[contains(text(),"Submit") or contains(text(),"Continue")]'))
+    )
+    submit_button.click()
+else:
+    print("Failed to extract OTP")
+
+# Keep the browser open for debugging
+input("Press Enter to close the browser...")
+driver.quit()
